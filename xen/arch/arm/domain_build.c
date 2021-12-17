@@ -33,6 +33,7 @@
 #include <asm/domain_build.h>
 #include <asm/static-shmem.h>
 #include <xen/event.h>
+#include <xen/fdt.h>
 
 #include <xen/irq.h>
 #include <xen/grant_table.h>
