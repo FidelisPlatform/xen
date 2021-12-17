@@ -2,6 +2,8 @@
 #define __XEN_BOOTINFO_H__
 
 #include <xen/lib.h>
+#include <xen/bootdomain.h>
+#include <xen/mm.h>
 #include <xen/types.h>
 #include <xen/compiler.h>
 #include <xen/mm-frame.h>
@@ -48,6 +50,8 @@ struct __packed boot_info {
     boot_module_ptr_t mods;
 
     arch_boot_info_ptr_t arch;
+
+    struct domain_builder *builder;
 };
 
 extern struct boot_info *boot_info;
