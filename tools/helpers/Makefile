@@ -14,6 +14,7 @@ ifeq ($(CONFIG_ARM),y)
 TARGETS += init-dom0less
 endif
 endif
+PROGS += late-init-pv
 
 XEN_INIT_DOM0_OBJS = xen-init-dom0.o init-dom-json.o
 $(XEN_INIT_DOM0_OBJS): CFLAGS += $(CFLAGS_libxentoollog)
@@ -39,6 +40,13 @@ $(INIT_DOM0LESS_OBJS): CFLAGS += $(CFLAGS_libxenctrl)
 $(INIT_DOM0LESS_OBJS): CFLAGS += $(CFLAGS_libxenevtchn)
 init-dom0less: LDLIBS += $(call xenlibs-ldlibs,ctrl evtchn toollog store light guest foreignmemory)
 
+LATE_INIT_PV_OBJS = late-init-pv.o builder-hypfs.o xs-helpers.o
+$(LATE_INIT_PV_OBJS): CFLAGS += $(CFLAGS_libxentoollog)
+$(LATE_INIT_PV_OBJS): CFLAGS += $(CFLAGS_libxenguest)
+$(LATE_INIT_PV_OBJS): CFLAGS += $(CFLAGS_libxenctrl)
+$(LATE_INIT_PV_OBJS): CFLAGS += $(CFLAGS_libxenhypfs)
+$(LATE_INIT_PV_OBJS): CFLAGS += $(CFLAGS_libxenstore)
+
 .PHONY: all
 all: $(TARGETS)
 
@@ -50,6 +58,9 @@ init-xenstore-domain: $(INIT_XENSTORE_DOMAIN_OBJS)
 
 init-dom0less: $(INIT_DOM0LESS_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(INIT_DOM0LESS_OBJS) $(LDLIBS) $(APPEND_LDFLAGS)
+
+late-init-pv: $(LATE_INIT_PV_OBJS)
+	$(CC) $(LDFLAGS) -o $@ $(LATE_INIT_PV_OBJS) $(LDLIBS_libxentoollog) $(LDLIBS_libxenstore) $(LDLIBS_libxenctrl) $(LDLIBS_libxenguest) $(LDLIBS_libxenhypfs) $(APPEND_LDFLAGS)
 
 .PHONY: install
 install: all
