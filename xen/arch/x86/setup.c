@@ -273,7 +273,7 @@ static int __init cf_check parse_acpi_param(const char *s)
 }
 custom_param("acpi", parse_acpi_param);
 
-static struct boot_info __initdata *boot_info;
+struct boot_info __initdata *boot_info;
 
 unsigned long __init initial_images_nrpages(nodeid_t node)
 {
@@ -832,42 +832,6 @@ ignore_param("edid");
  */
 ignore_param("placeholder");
 
-static bool __init loader_is_grub2(const char *loader_name)
-{
-    /* GRUB1="GNU GRUB 0.xx"; GRUB2="GRUB 1.xx" */
-    const char *p = strstr(loader_name, "GRUB ");
-    return (p != NULL) && (p[5] != '0');
-}
-
-/*
- * Clean up a command line string passed to us by a bootloader.  Strip leading
- * whitespace, and optionally strip the first parameter if our divination of
- * the bootloader suggests that it prepended the image name.
- *
- * Always returns a pointer within @p.
- */
-static const char *__init cmdline_cook(const char *p, const char *loader_name)
-{
-    /* Strip leading whitespace. */
-    while ( *p == ' ' )
-        p++;
-
-    /*
-     * PVH, our EFI loader, and GRUB2 don't include image name as first
-     * item on command line.
-     */
-    if ( xen_guest || efi_enabled(EFI_LOADER) || loader_is_grub2(loader_name) )
-        return p;
-
-    /* Strip image name plus whitespace. */
-    while ( (*p != ' ') && (*p != '\0') )
-        p++;
-    while ( *p == ' ' )
-        p++;
-
-    return p;
-}
-
 static unsigned int __init copy_bios_e820(struct e820entry *map, unsigned int limit)
 {
     unsigned int n = min(bootsym(bios_e820nr), limit);
@@ -878,9 +842,7 @@ static unsigned int __init copy_bios_e820(struct e820entry *map, unsigned int li
     return n;
 }
 
-static struct domain *__init create_dom0(const struct boot_info *bootinfo,
-                                         const char *kextra,
-                                         const char *loader)
+static struct domain *__init create_dom0(const struct boot_info *bi)
 {
     static char __initdata cmdline[MAX_GUEST_CMDLINE];
 
@@ -895,8 +857,8 @@ static struct domain *__init create_dom0(const struct boot_info *bootinfo,
             .misc_flags = opt_dom0_msr_relaxed ? XEN_X86_MSR_RELAXED : 0,
         },
     };
-    struct boot_module *image = bootmodule_next(bootinfo, BOOTMOD_KERNEL);
-    struct boot_module *initrd = bootmodule_next(bootinfo, BOOTMOD_RAMDISK);
+    struct boot_module *image = bootmodule_next(boot_info, BOOTMOD_KERNEL);
+    struct boot_module *initrd = bootmodule_next(boot_info, BOOTMOD_RAMDISK);
     struct domain *d;
     domid_t domid = 0;
 
@@ -928,14 +890,14 @@ static struct domain *__init create_dom0(const struct boot_info *bootinfo,
         panic("Error creating d%uv0\n", domid);
 
     /* Grab the DOM0 command line. */
-    if ( image->string.len || kextra )
+    if ( image->string.len || boot_info->arch->kextra )
     {
         if ( image->string.len )
-            safe_strcpy(cmdline, cmdline_cook(__va(image->string.bytes), loader));
+            safe_strcpy(cmdline, arch_prepare_cmdline(__va(image->string.bytes), boot_info->arch));
 
-        if ( kextra )
+        if ( bi->arch->kextra )
             /* kextra always includes exactly one leading space. */
-            safe_strcat(cmdline, kextra);
+            safe_strcat(cmdline, bi->arch->kextra);
 
         /* Append any extra parameters. */
         if ( skip_ioapic_setup && !strstr(cmdline, "noapic") )
@@ -982,8 +944,8 @@ static struct domain *__init create_dom0(const struct boot_info *bootinfo,
 
 void asmlinkage __init noreturn __start_xen(unsigned long bi_p)
 {
-    const char *memmap_type = NULL, *loader, *cmdline = "";
-    char *kextra;
+    char *memmap_type = NULL;
+    char *cmdline, *loader;
     void *bsp_stack;
     struct cpu_info *info = get_cpu_info(), *bsp_info;
     unsigned int initrdidx, num_parked = 0;
@@ -1049,23 +1011,10 @@ void asmlinkage __init noreturn __start_xen(unsigned long bi_p)
     }
 
     loader = (boot_info->arch->flags & BOOTINFO_FLAG_X86_LOADERNAME)
-        ? boot_info->arch->boot_loader_name : "unknown";
+        ? boot_info->arch->boot_loader_name : (char *)"unknown";
 
     /* Parse the command-line options. */
-    cmdline = cmdline_cook((boot_info->arch->flags & BOOTINFO_FLAG_X86_CMDLINE) ?
-                            boot_info->cmdline : NULL,
-                           loader);
-    if ( (kextra = strstr(cmdline, " -- ")) != NULL )
-    {
-        /*
-         * Options after ' -- ' separator belong to dom0.
-         *  1. Orphan dom0's options from Xen's command line.
-         *  2. Skip all but final leading space from dom0's options.
-         */
-        *kextra = '\0';
-        kextra += 3;
-        while ( kextra[1] == ' ' ) kextra++;
-    }
+    cmdline = bootinfo_prepare_cmdline(boot_info);
     cmdline_parse(cmdline);
 
     /* Must be after command line argument parsing and before
@@ -1173,7 +1122,7 @@ void asmlinkage __init noreturn __start_xen(unsigned long bi_p)
     if ( pvh_boot )
     {
         /* pvh_init() already filled in e820_raw */
-        memmap_type = "PVH-e820";
+        memmap_type = (char *)"PVH-e820";
     }
     else if ( efi_enabled(EFI_LOADER) )
     {
@@ -1191,16 +1140,16 @@ void asmlinkage __init noreturn __start_xen(unsigned long bi_p)
         memmap_type = loader;
     }
     else if ( efi_enabled(EFI_BOOT) )
-        memmap_type = "EFI";
+        memmap_type = (char *)"EFI";
     else if ( (e820_raw.nr_map = 
                    copy_bios_e820(e820_raw.map,
                                   ARRAY_SIZE(e820_raw.map))) != 0 )
     {
-        memmap_type = "Xen-e820";
+        memmap_type = (char *)"Xen-e820";
     }
     else if ( boot_info->arch->flags & BOOTINFO_FLAG_X86_MEMMAP )
     {
-        memmap_type = "Multiboot-e820";
+        memmap_type = (char *)"Multiboot-e820";
         while ( bytes < boot_info->arch->mmap_length &&
                 e820_raw.nr_map < ARRAY_SIZE(e820_raw.map) )
         {
@@ -2051,7 +2000,7 @@ void asmlinkage __init noreturn __start_xen(unsigned long bi_p)
      * We're going to setup domain0 using the module(s) that we stashed safely
      * above our heap. The second module, if present, is an initrd ramdisk.
      */
-    dom0 = create_dom0(boot_info, kextra, loader);
+    dom0 = create_dom0(boot_info);
     if ( !dom0 )
         panic("Could not set up DOM0 guest OS\n");
 
