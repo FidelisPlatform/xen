@@ -1,6 +1,7 @@
 #ifndef __XEN_BOOTINFO_H__
 #define __XEN_BOOTINFO_H__
 
+#include <xen/lib.h>
 #include <xen/types.h>
 #include <xen/compiler.h>
 #include <xen/mm-frame.h>
@@ -48,6 +49,52 @@ struct __packed boot_info {
 
     arch_boot_info_ptr_t arch;
 };
+
+extern struct boot_info *boot_info;
+
+static inline char *bootinfo_prepare_cmdline(struct boot_info *bi)
+{
+    bi->cmdline = arch_bootinfo_prepare_cmdline(bi->cmdline, bi->arch);
+
+    if ( *bi->cmdline == ' ' )
+        printk(XENLOG_WARNING "%s: leading whitespace left on cmdline\n",
+               __func__);
+
+    return bi->cmdline;
+}
+
+static inline unsigned long bootmodule_next_idx_by_type(
+    const struct boot_info *bi, bootmod_type_t type, unsigned long start)
+{
+    for ( ; start < bi->nr_mods; start++ )
+        if ( bi->mods[start].bootmod_type == type )
+            return start;
+
+    return bi->nr_mods + 1;
+}
+
+static inline unsigned long bootmodule_count_by_type(
+    const struct boot_info *bi, bootmod_type_t type)
+{
+    unsigned long count = 0;
+    int i;
+
+    for ( i=0; i < bi->nr_mods; i++ )
+        if ( bi->mods[i].bootmod_type == type )
+            count++;
+
+    return count;
+}
+
+static inline struct boot_module *bootmodule_next_by_type(
+    const struct boot_info *bi, bootmod_type_t type, unsigned long start)
+{
+    for ( ; start < bi->nr_mods; start++ )
+        if ( bi->mods[start].bootmod_type == type )
+            return &bi->mods[start];
+
+    return NULL;
+}
 
 #endif
 
