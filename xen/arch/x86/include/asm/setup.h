@@ -26,6 +26,7 @@ void subarch_init_memory(void);
 
 void init_IRQ(void);
 
+void apply_xen_cmdline(char *cmdline);
 int construct_domain(struct boot_domain *bd);
 
 void setup_io_bitmap(struct domain *d);
