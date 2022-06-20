@@ -14,6 +14,8 @@
  */
 
 #ifndef COMPAT
+#include <xen/bootdomain.h>
+#include <xen/domain_builder.h>
 #include <xen/init.h>
 #include <xen/lib.h>
 #include <xen/param.h>
@@ -3455,14 +3457,14 @@ void wait(void)
 }
 
 #ifdef CONFIG_X86
-void __init sched_setup_dom0_vcpus(struct domain *d)
+void __init sched_setup_dom_vcpus(struct boot_domain *bd)
 {
     unsigned int i;
 
-    for ( i = 1; i < d->max_vcpus; i++ )
-        vcpu_create(d, i);
+    for ( i = 1; i < bd->domain->max_vcpus; i++ )
+        vcpu_create(bd->domain, i);
 
-    domain_update_node_affinity(d);
+    domain_update_node_affinity(bd->domain);
 }
 #endif
 
