@@ -47,7 +47,6 @@
 #include <asm/edd.h>
 #include <xsm/xsm.h>
 #include <asm/tboot.h>
-#include <asm/bzimage.h> /* for bzimage_headroom */
 #include <asm/mach-generic/mach_apic.h> /* for generic_apic_probe */
 #include <asm/setup.h>
 #include <xen/cpu.h>
@@ -274,6 +273,24 @@ static int __init cf_check parse_acpi_param(const char *s)
     return 0;
 }
 custom_param("acpi", parse_acpi_param);
+
+void __init arch_builder_apply_cmdline(
+    struct boot_info *info, struct boot_domain *bd)
+{
+    if ( skip_ioapic_setup && !strstr(bd->kernel->string.bytes, "noapic") )
+        strlcat(bd->kernel->string.bytes, " noapic", MAX_GUEST_CMDLINE);
+    if ( (strlen(acpi_param) == 0) && acpi_disabled )
+    {
+        printk("ACPI is disabled, notifying Domain 0 (acpi=off)\n");
+        strlcpy(acpi_param, "off", sizeof(acpi_param));
+    }
+    if ( (strlen(acpi_param) != 0) &&
+         !strstr(bd->kernel->string.bytes, "acpi=") )
+    {
+        strlcat(bd->kernel->string.bytes, " acpi=", MAX_GUEST_CMDLINE);
+        strlcat(bd->kernel->string.bytes, acpi_param, MAX_GUEST_CMDLINE);
+    }
+}
 
 struct boot_info __initdata *boot_info;
 
@@ -844,7 +861,8 @@ static unsigned int __init copy_bios_e820(struct e820entry *map, unsigned int li
     return n;
 }
 
-static struct domain *__init create_dom0(const struct boot_info *bi)
+static struct domain *__init create_dom0(
+    const struct boot_info *bi, struct boot_domain *bd)
 {
     static char __initdata cmdline[MAX_GUEST_CMDLINE];
 
@@ -859,13 +877,9 @@ static struct domain *__init create_dom0(const struct boot_info *bi)
             .misc_flags = opt_dom0_msr_relaxed ? XEN_X86_MSR_RELAXED : 0,
         },
     };
-    struct boot_module *image = bootmodule_next(boot_info, BOOTMOD_KERNEL);
-    struct boot_module *initrd = bootmodule_next(boot_info, BOOTMOD_RAMDISK);
-    struct domain *d;
-    domid_t domid = 0;
 
-    if ( image == NULL )
-        panic("Error creating d%uv0\n", domid);
+    if ( bd->kernel == NULL )
+        panic("Error creating d%uv0\n", bd->domid);
 
     if ( opt_dom0_pvh )
     {
@@ -881,21 +895,22 @@ static struct domain *__init create_dom0(const struct boot_info *bi)
         dom0_cfg.flags |= XEN_DOMCTL_CDF_iommu;
 
     /* Create initial domain.  Not d0 for pvshim. */
-    domid = get_initial_domain_id();
-    d = domain_create(domid, &dom0_cfg, pv_shim ? 0 : CDF_privileged);
-    if ( IS_ERR(d) )
-        panic("Error creating d%u: %ld\n", domid, PTR_ERR(d));
+    bd->domid = get_initial_domain_id();
+    bd->domain = domain_create(bd->domid, &dom0_cfg, pv_shim ?
+                               0 : CDF_privileged);
+    if ( IS_ERR(bd->domain) )
+        panic("Error creating d%u: %ld\n", bd->domid, PTR_ERR(bd->domain));
 
-    init_dom0_cpuid_policy(d);
+    init_dom0_cpuid_policy(bd->domain);
 
-    if ( alloc_dom0_vcpu0(d) == NULL )
-        panic("Error creating d%uv0\n", domid);
+    if ( alloc_dom0_vcpu0(bd->domain) == NULL )
+        panic("Error creating d%uv0\n", bd->domid);
 
     /* Grab the DOM0 command line. */
-    if ( image->string.len || boot_info->arch->kextra )
+    if ( bd->kernel->string.len || boot_info->arch->kextra )
     {
-        if ( image->string.len )
-            safe_strcpy(cmdline, arch_prepare_cmdline(__va(image->string.bytes), boot_info->arch));
+        if ( bd->kernel->string.len )
+            safe_strcpy(cmdline, arch_prepare_cmdline(__va(bd->kernel->string.bytes), boot_info->arch));
 
         if ( bi->arch->kextra )
             /* kextra always includes exactly one leading space. */
@@ -908,7 +923,7 @@ static struct domain *__init create_dom0(const struct boot_info *bi)
         if ( (strlen(acpi_param) == 0) && acpi_disabled )
         {
             printk("ACPI is disabled, notifying Domain 0 (acpi=off)\n");
-            safe_strcpy(acpi_param, "off");
+            strlcpy(acpi_param, "off", sizeof(acpi_param));
         }
 
         if ( (strlen(acpi_param) != 0) && !strstr(cmdline, "acpi=") )
@@ -916,6 +931,8 @@ static struct domain *__init create_dom0(const struct boot_info *bi)
             safe_strcat(cmdline, " acpi=");
             safe_strcat(cmdline, acpi_param);
         }
+
+        strlcpy(bd->kernel->string.bytes, cmdline, MAX_GUEST_CMDLINE);
     }
 
     /*
@@ -929,7 +946,7 @@ static struct domain *__init create_dom0(const struct boot_info *bi)
         write_cr4(read_cr4() & ~X86_CR4_SMAP);
     }
 
-    if ( construct_dom0(d, image, initrd, cmdline) != 0 )
+    if ( construct_domain(bd) != 0 )
         panic("Could not construct domain 0\n");
 
     if ( cpu_has_smap )
@@ -938,14 +955,14 @@ static struct domain *__init create_dom0(const struct boot_info *bi)
         cr4_pv32_mask |= X86_CR4_SMAP;
     }
 
-    return d;
+    return bd->domain;
 }
 
 void __init arch_create_dom(
     const struct boot_info *bi, struct boot_domain *bd)
 {
     if ( builder_is_initdom(bd) )
-        create_dom0(bi);
+        create_dom0(bi, bd);
 }
 
 /* How much of the directmap is prebuilt at compile time. */
@@ -1125,8 +1142,7 @@ void asmlinkage __init noreturn __start_xen(unsigned long bi_p)
                boot_info->nr_mods);
     }
 
-    /* Dom0 kernel is the first boot module */
-    boot_info->mods[0].bootmod_type = BOOTMOD_KERNEL;
+    builder_init(boot_info);
 
     if ( pvh_boot )
     {
@@ -1320,12 +1336,6 @@ void asmlinkage __init noreturn __start_xen(unsigned long bi_p)
                                 virt_to_maddr(_stext));
         boot_info->mods[boot_info->nr_mods].size = __2M_rwdata_end - _stext;
     }
-
-    boot_info->mods[0].arch->headroom =
-        bzimage_headroom(bootstrap_map(&boot_info->mods[0]),
-                         boot_info->mods[0].size);
-
-    bootstrap_map(NULL);
 
 #ifndef highmem_start
     /* Don't allow split below 4Gb. */
@@ -1995,23 +2005,29 @@ void asmlinkage __init noreturn __start_xen(unsigned long bi_p)
            cpu_has_nx ? XENLOG_INFO : XENLOG_WARNING "Warning: ",
            cpu_has_nx ? "" : "not ");
 
-    initrdidx = bootmodule_index(boot_info, BOOTMOD_UNKNOWN, 0);
-    if ( initrdidx < boot_info->nr_mods )
-        boot_info->mods[initrdidx].bootmod_type = BOOTMOD_RAMDISK;
-
-    if ( bootmodule_index(boot_info, BOOTMOD_UNKNOWN, 0) >
-            boot_info->nr_mods )
-        printk(XENLOG_WARNING
-               "Multiple initrd candidates, picking module #%u\n",
-               initrdidx);
-
     /*
-     * We're going to setup domain0 using the module(s) that we stashed safely
-     * above our heap. The second module, if present, is an initrd ramdisk.
+     * Boot description not provided, check to see if there are any remaining
+     * boot modules, the first one found will be provided as the ramdisk.
      */
-    dom0 = create_dom0(boot_info);
+    if ( ! boot_info->builder->fdt_enabled )
+    {
+        initrdidx = bootmodule_next_idx_by_type(boot_info, BOOTMOD_UNKNOWN, 0);
+        if ( initrdidx < boot_info->nr_mods )
+        {
+            boot_info->builder->domains[0].ramdisk = &boot_info->mods[initrdidx];
+            boot_info->mods[initrdidx].bootmod_type = BOOTMOD_RAMDISK;
+        }
+        if ( bootmodule_count_by_type(boot_info, BOOTMOD_UNKNOWN) > 1 )
+            printk(XENLOG_WARNING
+                   "Multiple initrd candidates, picking module #%u\n",
+                   initrdidx);
+    }
+
+    builder_create_domains(boot_info);
+
+    dom0 = builder_get_hwdom(boot_info);
     if ( !dom0 )
-        panic("Could not set up DOM0 guest OS\n");
+        panic("No hardware domain was built\n");
 
     heap_init_late();
 

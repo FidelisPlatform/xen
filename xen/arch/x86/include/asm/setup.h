@@ -26,11 +26,8 @@ void subarch_init_memory(void);
 
 void init_IRQ(void);
 
-int construct_dom0(
-    struct domain *d,
-    const struct boot_module *kernel,
-    struct boot_module *initrd,
-    char *cmdline);
+int construct_domain(struct boot_domain *bd);
+
 void setup_io_bitmap(struct domain *d);
 
 unsigned long initial_images_nrpages(nodeid_t node);
