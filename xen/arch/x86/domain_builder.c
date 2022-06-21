@@ -6,6 +6,7 @@
 #include <xen/grant_table.h>
 #include <xen/iommu.h>
 #include <xen/sched.h>
+#include <xen/softirq.h>
 
 #include <asm/cpu-policy.h>
 #include <asm/pv/shim.h>
@@ -191,13 +192,17 @@ void __init arch_create_dom(
     if ( !pv_shim && builder_is_ctldom(bd) )
         is_privileged = CDF_privileged;
 
-    /* Create initial domain.  Not d0 for pvshim. */
-    bd->domid = get_initial_domain_id();
+    /* Determine proper domain id. */
+    if ( builder_is_initdom(bd) )
+        bd->domid = get_initial_domain_id();
+    else
+        bd->domid = bd->domid ? bd->domid : get_next_domid();
     bd->domain = domain_create(bd->domid, &dom_cfg, is_privileged);
     if ( IS_ERR(bd->domain) )
         panic("Error creating d%u: %ld\n", bd->domid, PTR_ERR(bd->domain));
 
-    init_dom0_cpuid_policy(bd->domain);
+    if ( builder_is_initdom(bd) )
+        init_dom0_cpuid_policy(bd->domain);
 
     if ( alloc_dom_vcpu0(bd) == NULL )
         panic("Error creating d%uv0\n", bd->domid);
@@ -208,14 +213,22 @@ void __init arch_create_dom(
         if ( bd->kernel->string.len )
             safe_strcpy(cmdline, arch_prepare_cmdline(__va(bd->kernel->string.bytes), boot_info->arch));
 
-        if ( bi->arch->kextra )
-            /* kextra always includes exactly one leading space. */
-            safe_strcat(cmdline, bi->arch->kextra);
+        if ( builder_is_initdom(bd) )
+        {
+            if ( bi->arch->kextra )
+                /* kextra always includes exactly one leading space. */
+                safe_strcat(cmdline, bi->arch->kextra);
 
-        apply_xen_cmdline(cmdline);
+            apply_xen_cmdline(cmdline);
+        }
 
         strlcpy(bd->kernel->string.bytes, cmdline, MAX_GUEST_CMDLINE);
     }
+
+    if ( alloc_system_evtchn(bi, bd) != 0 )
+        printk(XENLOG_WARNING "%s: "
+               "unable set up system event channels for Dom%d\n",
+               __func__, bd->domid);
 
     /*
      * Temporarily clear SMAP in CR4 to allow user-accesses in construct_dom0().
@@ -238,3 +251,32 @@ void __init arch_create_dom(
     }
 }
 
+int __init construct_domain(struct boot_domain *bd)
+{
+    int rc = 0;
+
+    /* Sanity! */
+    BUG_ON(bd->domid != bd->domain->domain_id);
+    BUG_ON(bd->domain->vcpu[0] == NULL);
+    BUG_ON(bd->domain->vcpu[0]->is_initialised);
+
+    process_pending_softirqs();
+
+    if ( is_hvm_domain(bd->domain) )
+        if ( builder_is_initdom(bd) )
+            rc = dom0_construct_pvh(bd);
+        else
+            panic("Cannot construct HVM DomU. Not supported.\n");
+    else if ( is_pv_domain(bd->domain) )
+            rc = dom_construct_pv(bd);
+    else
+        panic("Cannot construct Dom0. No guest interface available\n");
+
+    if ( rc )
+        return rc;
+
+    /* Sanity! */
+    BUG_ON(!bd->domain->vcpu[0]->is_initialised);
+
+    return 0;
+}
