@@ -970,7 +970,16 @@ static int __init pvh_setup_acpi_xsdt(struct domain *d, paddr_t madt_addr,
         rc = -EINVAL;
         goto out;
     }
-    xsdt_paddr = rsdp->xsdt_physical_address;
+    /*
+     * Note the header is the same for both RSDT and XSDT, so it's fine to
+     * copy the native RSDT header to the Xen crafted XSDT if no native
+     * XSDT is available.
+     */
+    if ( rsdp->revision > 1 && rsdp->xsdt_physical_address )
+        xsdt_paddr = rsdp->xsdt_physical_address;
+    else
+        xsdt_paddr = rsdp->rsdt_physical_address;
+
     acpi_os_unmap_memory(rsdp, sizeof(*rsdp));
     table = acpi_os_map_memory(xsdt_paddr, sizeof(*table));
     if ( !table )
