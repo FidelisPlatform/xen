@@ -760,7 +760,10 @@ static void noreturn init_done(void)
 
     system_state = SYS_STATE_active;
 
-    domain_unpause_by_systemcontroller(dom0);
+    if ( (err = builder_unpause_domains()) < 1 )
+        panic("domain builder: no domains scheduled to start on boot\n");
+    else
+        printk("domain builder: unpaused %d domains at boot\n", err);
 
     /* MUST be done prior to removing .init data. */
     unregister_init_virtual_region();

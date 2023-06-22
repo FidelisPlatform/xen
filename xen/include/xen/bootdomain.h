@@ -24,10 +24,11 @@ struct boot_domain {
 #define BUILD_FUNCTION_XENSTORE        (1 << 30)
 #define BUILD_FUNCTION_INITIAL_DOM     (1 << 31)
     uint32_t functions;
-                                                /* On     | Off    */
-#define BUILD_MODE_PARAVIRTUALIZED     (1 << 0) /* PV     | PVH/HVM */
-#define BUILD_MODE_ENABLE_DEVICE_MODEL (1 << 1) /* HVM    | PVH     */
-#define BUILD_MODE_LONG                (1 << 2) /* 64 BIT | 32 BIT  */
+                                                /* On       | Off    */
+#define BUILD_MODE_PARAVIRTUALIZED     (1 << 0) /* PV       | PVH/HVM */
+#define BUILD_MODE_ENABLE_DEVICE_MODEL (1 << 1) /* HVM      | PVH     */
+#define BUILD_MODE_LONG                (1 << 2) /* 64 BIT   | 32 BIT  */
+#define BUILD_MODE_START_ON_BOOT       (1 << 3) /* UNPAUSED | PAUSED  */
     uint32_t mode;
 
     domid_t domid;

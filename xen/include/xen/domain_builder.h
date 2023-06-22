@@ -67,6 +67,7 @@ static inline struct domain *builder_get_hwdom(struct boot_info *info)
 
 void builder_init(struct boot_info *info);
 uint32_t builder_create_domains(struct boot_info *info);
+uint32_t builder_unpause_domains(void);
 domid_t get_next_domid(void);
 int alloc_system_evtchn(
     const struct boot_info *info, struct boot_domain *bd);

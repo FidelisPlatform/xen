@@ -3,6 +3,7 @@
 #include <xen/domain_builder.h>
 #include <xen/event.h>
 #include <xen/init.h>
+#include <xen/sched.h>
 #include <xen/types.h>
 
 #include <asm/bzimage.h>
@@ -137,6 +138,25 @@ uint32_t __init builder_create_domains(struct boot_info *info)
     return build_count;
 }
 
+uint32_t __init builder_unpause_domains(void)
+{
+    int i, count = 0;
+
+    for ( i = 0; i < builder.nr_doms; i++ )
+    {
+        struct boot_domain *bd = &builder.domains[i];
+
+        if ( bd->functions & BUILD_FUNCTION_INITIAL_DOM ||
+             bd->mode & BUILD_MODE_START_ON_BOOT )
+        {
+            domain_unpause_by_systemcontroller(bd->domain);
+            count++;
+        }
+    }
+
+    return count;
+}
+
 domid_t __init get_next_domid(void)
 {
     static domid_t __initdata last_domid = 0;
@@ -202,3 +222,4 @@ int __init alloc_system_evtchn(
 
     return 0;
 }
+
