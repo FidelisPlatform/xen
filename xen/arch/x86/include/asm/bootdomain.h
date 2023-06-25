@@ -2,7 +2,7 @@
 #define __ARCH_X86_BOOTDOMAIN_H__
 
 struct memsize {
-    long nr_pages;
+    unsigned long nr_pages;
     unsigned int percent;
     bool minus;
 };
