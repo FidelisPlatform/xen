@@ -6,6 +6,7 @@ obj-y += asid.o
 obj-y += dm.o
 obj-bin-y += dom0_build.init.o
 obj-y += domain.o
+obj-bin-y += domain_builder.init.o
 obj-y += emulate.o
 obj-$(CONFIG_GRANT_TABLE) += grant_table.o
 obj-y += hpet.o

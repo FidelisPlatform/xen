@@ -182,8 +182,11 @@ void __init arch_create_dom(
                 dom_cfg.flags |= ~XEN_DOMCTL_CDF_hap;
 
         /* TODO: review which flags should be present */
-        dom_cfg.arch.emulation_flags |=
-            XEN_X86_EMU_LAPIC | XEN_X86_EMU_IOAPIC | XEN_X86_EMU_VPCI;
+        if ( builder_is_initdom(bd) )
+            dom_cfg.arch.emulation_flags |=
+                XEN_X86_EMU_LAPIC | XEN_X86_EMU_IOAPIC | XEN_X86_EMU_VPCI;
+        else
+            dom_cfg.arch.emulation_flags |= X86_EMU_LAPIC;
     }
 
     if ( iommu_enabled && builder_is_hwdom(bd) )
@@ -266,10 +269,7 @@ int __init construct_domain(struct boot_domain *bd)
     process_pending_softirqs();
 
     if ( is_hvm_domain(bd->domain) )
-        if ( builder_is_initdom(bd) )
-            rc = dom0_construct_pvh(bd);
-        else
-            panic("Cannot construct HVM DomU. Not supported.\n");
+            rc = dom_construct_pvh(bd);
     else if ( is_pv_domain(bd->domain) )
             rc = dom_construct_pv(bd);
     else

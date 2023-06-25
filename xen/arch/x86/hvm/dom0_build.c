@@ -88,9 +88,8 @@ static int __init modify_identity_mmio(struct domain *d, unsigned long pfn,
 }
 
 /* Populate a HVM memory range using the biggest possible order. */
-static int __init pvh_populate_memory_range(struct domain *d,
-                                            unsigned long start,
-                                            unsigned long nr_pages)
+int __init pvh_populate_memory_range(
+    struct domain *d, unsigned long start, unsigned long nr_pages)
 {
     struct {
         unsigned long align;
@@ -184,9 +183,9 @@ static int __init pvh_populate_memory_range(struct domain *d,
 }
 
 /* Steal RAM from the end of a memory region. */
-static int __init pvh_steal_ram(struct domain *d, unsigned long size,
-                                unsigned long align, paddr_t limit,
-                                paddr_t *addr)
+int __init pvh_steal_ram(
+    struct domain *d, unsigned long size, unsigned long align, paddr_t limit,
+    paddr_t *addr)
 {
     unsigned int i = d->arch.nr_e820;
 
@@ -216,8 +215,8 @@ static int __init pvh_steal_ram(struct domain *d, unsigned long size,
 }
 
 /* NB: memory map must be sorted at all times for this to work correctly. */
-static int __init pvh_add_mem_range(struct domain *d, uint64_t s, uint64_t e,
-                                    unsigned int type)
+int __init pvh_add_mem_range(
+    struct domain *d, uint64_t s, uint64_t e, unsigned int type)
 {
     struct e820entry *map;
     unsigned int i;
@@ -323,7 +322,7 @@ static int __init pvh_setup_vmx_realmode_helpers(struct domain *d)
     return 0;
 }
 
-static __init void pvh_setup_e820(struct domain *d, unsigned long nr_pages)
+__init void dom0_pvh_setup_e820(struct domain *d, unsigned long nr_pages)
 {
     struct e820entry *entry, *entry_guest;
     unsigned int i;
@@ -404,7 +403,7 @@ static void __init pvh_init_p2m(struct boot_domain *bd)
     unsigned long nr_pages = dom_compute_nr_pages(bd, NULL, 0);
     bool preempted;
 
-    pvh_setup_e820(bd->domain, nr_pages);
+    dom0_pvh_setup_e820(bd->domain, nr_pages);
     do {
         preempted = false;
         paging_set_allocation(bd->domain,
@@ -414,7 +413,7 @@ static void __init pvh_init_p2m(struct boot_domain *bd)
     } while ( preempted );
 }
 
-static int __init pvh_populate_p2m(struct domain *d)
+int __init pvh_populate_p2m(struct domain *d)
 {
     struct vcpu *v = d->vcpu[0];
     unsigned int i;
@@ -540,7 +539,7 @@ static paddr_t __init find_memory(
     return INVALID_PADDR;
 }
 
-static int __init pvh_load_kernel(
+int __init pvh_load_kernel(
     struct domain *d, const struct boot_module *image,
     struct boot_module *initrd, void *image_base, char *cmdline, paddr_t *entry,
     paddr_t *start_info_addr)
@@ -1037,7 +1036,7 @@ static int __init pvh_setup_acpi_xsdt(struct domain *d, paddr_t madt_addr,
     return rc;
 }
 
-static int __init pvh_setup_acpi(struct domain *d, paddr_t start_info)
+int __init pvh_setup_acpi(struct domain *d, paddr_t start_info)
 {
     unsigned long pfn, nr_pages;
     paddr_t madt_paddr, xsdt_paddr, rsdp_paddr;
@@ -1168,7 +1167,7 @@ static int __init pvh_setup_acpi(struct domain *d, paddr_t start_info)
     return 0;
 }
 
-static void __hwdom_init pvh_setup_mmcfg(struct domain *d)
+void __hwdom_init pvh_setup_mmcfg(struct domain *d)
 {
     unsigned int i;
     int rc;
@@ -1213,7 +1212,8 @@ int __init dom0_construct_pvh(struct boot_domain *bd)
      * initialization so the iommu code can fetch the MMCFG regions used by the
      * domain.
      */
-    pvh_setup_mmcfg(d);
+    if ( is_hvm_domain(bd->domain) )
+        pvh_setup_mmcfg(d);
 
     /*
      * Craft dom0 physical memory map and set the paging allocation. This must
