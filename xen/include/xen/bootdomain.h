@@ -14,6 +14,7 @@ struct boot_domain {
 #define BUILD_PERMISSION_NONE          (0)
 #define BUILD_PERMISSION_CONTROL       (1 << 0)
 #define BUILD_PERMISSION_HARDWARE      (1 << 1)
+#define BUILD_PERMISSION_CONSOLE       (1 << 2)
     uint32_t permissions;
 
 #define BUILD_FUNCTION_NONE            (0)

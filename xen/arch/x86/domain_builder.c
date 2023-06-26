@@ -204,6 +204,9 @@ void __init arch_create_dom(
     if ( builder_is_initdom(bd) )
         init_dom0_cpuid_policy(bd->domain);
 
+    if ( bd->permissions & BUILD_PERMISSION_CONSOLE )
+        bd->domain->is_console = true;
+
     if ( alloc_dom_vcpu0(bd) == NULL )
         panic("Error creating d%uv0\n", bd->domid);
 
