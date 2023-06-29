@@ -564,6 +564,53 @@ int __init dom_construct_pvh(struct boot_domain *bd)
         return rc;
     }
 
+    if ( !builder_is_initdom(bd) )
+    {
+        mfn_t mfn;
+        p2m_type_t t;
+        paddr_t xs_addr, con_addr;
+        unsigned long gfn;
+
+        /* Allocate the pages for Xenstore and console */
+        if ( pvh_steal_ram(d, PAGE_SIZE, 0, GB(4), &xs_addr) )
+        {
+            printk("Unable to allocate guest ram for xenstore\n");
+            return -ENOMEM;
+        }
+
+        if ( pvh_steal_ram(d, PAGE_SIZE, 0, GB(4), &con_addr) )
+        {
+            printk("Unable to allocate guest ram for xenstore\n");
+            return -ENOMEM;
+        }
+
+        /* Setup Xenstore page */
+        gfn = gfn_x(gaddr_to_gfn(xs_addr));
+        mfn = get_gfn_query_unlocked(d, gfn, &t);
+        if ( t != p2m_ram_rw )
+        {
+            printk("Allocated xenstore page is not valid in p2m.\n");
+            return -ENOMEM;
+        }
+
+        bd->store.mfn = mfn_x(mfn);
+        d->arch.hvm.params[HVM_PARAM_STORE_PFN] = gfn;
+        d->arch.hvm.params[HVM_PARAM_STORE_EVTCHN] = bd->store.evtchn;
+
+        /* Setup console page */
+        gfn = gfn_x(gaddr_to_gfn(con_addr));
+        mfn = get_gfn_query_unlocked(d, gfn, &t);
+        if ( t != p2m_ram_rw )
+        {
+            printk("Allocated console page is not valid in p2m.\n");
+            return -ENOMEM;
+        }
+
+        bd->console.mfn = mfn_x(mfn);
+        d->arch.hvm.params[HVM_PARAM_CONSOLE_PFN] = gfn;
+        d->arch.hvm.params[HVM_PARAM_CONSOLE_EVTCHN] = bd->console.evtchn;
+    }
+
     if ( opt_dom0_verbose )
     {
         printk("%pd memory map:\n", d);
