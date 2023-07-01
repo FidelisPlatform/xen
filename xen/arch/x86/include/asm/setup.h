@@ -28,9 +28,9 @@ void init_IRQ(void);
 
 int construct_dom0(
     struct domain *d,
-    const module_t *image, unsigned long image_headroom,
-    module_t *initrd,
-    const char *cmdline);
+    const struct boot_module *kernel,
+    struct boot_module *initrd,
+    char *cmdline);
 void setup_io_bitmap(struct domain *d);
 
 unsigned long initial_images_nrpages(nodeid_t node);
