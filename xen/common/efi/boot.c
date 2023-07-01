@@ -3,6 +3,7 @@
 #include <efi/efipciio.h>
 #include <public/xen.h>
 #include <xen/bitops.h>
+#include <xen/bootinfo.h>
 #include <xen/compile.h>
 #include <xen/ctype.h>
 #include <xen/dmi.h>
@@ -11,7 +12,6 @@
 #include <xen/keyhandler.h>
 #include <xen/lib.h>
 #include <xen/mm.h>
-#include <xen/multiboot.h>
 #include <xen/param.h>
 #include <xen/pci_regs.h>
 #include <xen/pdx.h>
@@ -1360,6 +1360,8 @@ void EFIAPI __init noreturn efi_start(EFI_HANDLE ImageHandle,
 	     " (c/s " XEN_CHANGESET ") EFI loader\r\n");
 
     efi_arch_relocate_image(0);
+
+    efi_arch_bootinfo_init();
 
     if ( use_cfg_file )
     {
