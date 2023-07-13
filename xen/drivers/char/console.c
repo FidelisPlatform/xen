@@ -472,54 +472,68 @@ static void cf_check dump_console_ring_key(unsigned char key)
  */
 static unsigned int __read_mostly console_rx = 0;
 
-#define max_console_rx (max_init_domid + 1)
+#define CON_RX_DOMID (console_rx - 1)
 
-#ifdef CONFIG_SBSA_VUART_CONSOLE
 /* Make sure to rcu_unlock_domain after use */
 struct domain *console_input_domain(void)
 {
     if ( console_rx == 0 )
             return NULL;
-    return rcu_lock_domain_by_id(console_rx - 1);
+    return rcu_lock_domain_by_id(CON_RX_DOMID);
 }
-#endif
 
 static void switch_serial_input(void)
 {
-    unsigned int next_rx = console_rx;
+    struct domain *next, *d = console_input_domain();
 
-    /*
-     * Rotate among Xen, dom0 and boot-time created domUs while skipping
-     * switching serial input to non existing domains.
-     */
-    for ( ; ; )
+    if ( d == NULL )
     {
-        domid_t domid;
-        struct domain *d;
+        console_rx = hardware_domain->domain_id + 1;
+        printk("*** Serial input to DOM%d", CON_RX_DOMID);
+        goto out; //print switch_code statement & newline
+    }
 
-        if ( next_rx++ >= max_console_rx )
+    for ( next = rcu_dereference(d->next_in_list ); next != NULL;
+          next = rcu_dereference(next->next_in_list ))
+    {
+        if ( next == hardware_domain )
         {
             console_rx = 0;
-            printk("*** Serial input to Xen");
+            printk("*** Serial input to Xen\n");
             break;
         }
 
-#ifdef CONFIG_PV_SHIM
-        if ( next_rx == 1 )
-            domid = get_initial_domain_id();
-        else
-#endif
-            domid = next_rx - 1;
-        d = rcu_lock_domain_by_id(domid);
-        if ( d )
+        if ( xsm_console_io(XSM_OTHER, next, CONSOLEIO_read) == 0 )
         {
-            rcu_unlock_domain(d);
-            console_rx = next_rx;
-            printk("*** Serial input to DOM%u", domid);
+            console_rx = next->domain_id + 1;
+            printk("*** Serial input to DOM%d\n", CON_RX_DOMID);
             break;
         }
     }
 
+    /*
+     * Hit the end of the domain list and instead of assuming that the
+     * hardware domain is the first in the list, get the first domain
+     * in the domain list and then if it is not the hardware domain or
+     * does not have console privilege, iterate the list until we find
+     * the hardware domain or a domain with console privilege.
+     */
+    if ( next == NULL )
+    {
+        next = rcu_dereference(domain_list);
+        console_rx = next->domain_id;
+        if ( (next != hardware_domain) ||
+             (xsm_console_io(XSM_OTHER, next, CONSOLEIO_read) != 0) )
+        {
+            rcu_unlock_domain(d);
+            switch_serial_input();
+            return;
+        }
+    }
+
+    rcu_unlock_domain(d);
+
+out:
     if ( switch_code )
         printk(" (type 'CTRL-%c' three times to switch input)",
                opt_conswitch[0]);
@@ -528,12 +542,11 @@ static void switch_serial_input(void)
 
 static void __serial_rx(char c, struct cpu_user_regs *regs)
 {
-    switch ( console_rx )
-    {
-    case 0:
+    if ( console_rx == 0 )
         return handle_keypress(c, regs);
 
-    case 1:
+    if ( hardware_domain->domain_id == CON_RX_DOMID )
+    {
         /*
          * Deliver input to the hardware domain buffer, unless it is
          * already full.
@@ -546,30 +559,36 @@ static void __serial_rx(char c, struct cpu_user_regs *regs)
          * getting stuck.
          */
         send_global_virq(VIRQ_CONSOLE);
-        break;
+    }
+    else
+    {
+        struct domain *d = rcu_lock_domain_by_any_id(CON_RX_DOMID);
+
+        if ( d == NULL )
+            goto unlock_out;
 
 #ifdef CONFIG_SBSA_VUART_CONSOLE
-    default:
-    {
-        struct domain *d = rcu_lock_domain_by_id(console_rx - 1);
-
         /*
          * If we have a properly initialized vpl011 console for the
          * domain, without a full PV ring to Dom0 (in that case input
          * comes from the PV ring), then send the character to it.
          */
-        if ( d != NULL &&
-             !d->arch.vpl011.backend_in_domain &&
+        if ( !d->arch.vpl011.backend_in_domain &&
              d->arch.vpl011.backend.xen != NULL )
+        {
             vpl011_rx_char_xen(d, c);
-        else
-            printk("Cannot send chars to Dom%d: no UART available\n",
-                   console_rx - 1);
+            goto unlock_out;
+        }
+#endif
 
+        if ( (serial_rx_prod - serial_rx_cons) != SERIAL_RX_SIZE )
+            serial_rx_ring[SERIAL_RX_MASK(serial_rx_prod++)] = c;
+
+        send_guest_global_virq(d, VIRQ_CONSOLE);
+
+unlock_out:
         if ( d != NULL )
             rcu_unlock_domain(d);
-    }
-#endif
     }
 
 #ifdef CONFIG_X86
@@ -635,7 +654,7 @@ static long guest_console_write(XEN_GUEST_HANDLE_PARAM(char) buffer,
         if ( copy_from_guest(kbuf, buffer, kcount) )
             return -EFAULT;
 
-        if ( is_hardware_domain(cd) )
+        if ( cd->domain_id == CON_RX_DOMID )
         {
             /* Use direct console output as it could be interactive */
             spin_lock_irq(&console_lock);
@@ -725,6 +744,8 @@ long do_console_io(
         rc = -E2BIG;
         if ( count > INT_MAX )
             break;
+        if ( CON_RX_DOMID != current->domain->domain_id )
+            return 0;
 
         rc = 0;
         while ( (serial_rx_cons != serial_rx_prod) && (rc < count) )
@@ -1115,7 +1136,7 @@ void __init console_endboot(void)
      * a useful 'how to switch' message.
      */
     if ( opt_conswitch[1] == 'x' )
-        console_rx = max_console_rx;
+        console_rx = 0;
 
     register_keyhandler('w', dump_console_ring_key,
                         "synchronously dump console ring buffer (dmesg)", 0);
