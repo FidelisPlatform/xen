@@ -335,6 +335,15 @@ M:	Nick Rosbrook <rosbrookn@gmail.com>
 S:	Maintained
 F:	tools/golang
 
+HYPERLAUNCH
+M:	Daniel P. Smith <dpsmith@apertussolutions.com>
+M:	Christopher Clark <christopher.w.clark@gmail.com>
+W:	https://wiki.xenproject.org/wiki/Hyperlaunch
+S:	Supported
+F:	docs/design/launch/hyperlaunch.rst
+F:	docs/design/launch/hyperlaunch-devicetree.rst
+F:	xen/common/domain-builder/
+
 HYPFS
 M:	Juergen Gross <jgross@suse.com>
 S:	Supported
