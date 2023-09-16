@@ -140,7 +140,7 @@ struct huft {
 };
 
 /* Function prototypes */
-static int huft_build OF((unsigned *, unsigned, unsigned,
+static int huft_build OF((struct gzip_data *, unsigned *, unsigned, unsigned,
                           const ush *, const ush *, struct huft **, int *));
 static int huft_free OF((struct huft *));
 static int inflate_codes OF((struct gzip_data *, struct huft *, struct huft *, int, int));
@@ -311,8 +311,6 @@ static const int dbits = 6;          /* bits in base distance lookup table */
 #define BMAX 16         /* maximum bit length of any code (16 for explode) */
 #define N_MAX 288       /* maximum number of codes in any set */
 
-static unsigned __initdata hufts;      /* track memory usage */
-
 /*
  * Given a list of code lengths and a maximum table size, make a set of
  * tables to decode that set of codes.  Return zero on success, one if
@@ -329,8 +327,8 @@ static unsigned __initdata hufts;      /* track memory usage */
  * @param m Maximum lookup bits, returns actual
  */
 static int __init huft_build(
-    unsigned *b, unsigned n, unsigned s, const ush *d, const ush *e,
-    struct huft **t, int *m)
+    struct gzip_data *gd, unsigned *b, unsigned n, unsigned s, const ush *d,
+    const ush *e, struct huft **t, int *m)
 {
     unsigned a;                   /* counter for codes of length k */
     unsigned f;                   /* i repeats in table every f entries */
@@ -492,7 +490,7 @@ static int __init huft_build(
                     goto out;
                 }
                 DEBG1("4 ");
-                hufts += z + 1;         /* track memory usage */
+                gd->hufts += z + 1;         /* track memory usage */
                 *t = q + 1;             /* link to list for huft_free() */
                 *(t = &(q->v.t)) = (struct huft *)NULL;
                 u[h] = ++q;             /* table starts after link */
@@ -787,7 +785,7 @@ static int noinline __init inflate_fixed(struct gzip_data *gd)
     for (; i < 288; i++)          /* make a complete, but wrong code set */
         l[i] = 8;
     bl = 7;
-    if ((i = huft_build(l, 288, 257, cplens, cplext, &tl, &bl)) != 0) {
+    if ((i = huft_build(gd, l, 288, 257, cplens, cplext, &tl, &bl)) != 0) {
         free(l);
         return i;
     }
@@ -796,7 +794,7 @@ static int noinline __init inflate_fixed(struct gzip_data *gd)
     for (i = 0; i < 30; i++)      /* make an incomplete code set */
         l[i] = 5;
     bd = 5;
-    if ((i = huft_build(l, 30, 0, cpdist, cpdext, &td, &bd)) > 1)
+    if ((i = huft_build(gd, l, 30, 0, cpdist, cpdext, &td, &bd)) > 1)
     {
         huft_free(tl);
         free(l);
@@ -894,7 +892,7 @@ static int noinline __init inflate_dynamic(struct gzip_data *gd)
 
     /* build decoding table for trees--single level, 7 bit lookup */
     bl = 7;
-    if ((i = huft_build(ll, 19, 19, NULL, NULL, &tl, &bl)) != 0)
+    if ((i = huft_build(gd, ll, 19, 19, NULL, NULL, &tl, &bl)) != 0)
     {
         if (i == 1)
             huft_free(tl);
@@ -971,7 +969,7 @@ static int noinline __init inflate_dynamic(struct gzip_data *gd)
 
     /* build the decoding tables for literal/length and distance codes */
     bl = lbits;
-    if ((i = huft_build(ll, nl, 257, cplens, cplext, &tl, &bl)) != 0)
+    if ((i = huft_build(gd, ll, nl, 257, cplens, cplext, &tl, &bl)) != 0)
     {
         DEBG("dyn5b ");
         if (i == 1) {
@@ -983,7 +981,7 @@ static int noinline __init inflate_dynamic(struct gzip_data *gd)
     }
     DEBG("dyn5c ");
     bd = dbits;
-    if ((i = huft_build(ll + nl, nd, 0, cpdist, cpdext, &td, &bd)) != 0)
+    if ((i = huft_build(gd, ll + nl, nd, 0, cpdist, cpdext, &td, &bd)) != 0)
     {
         DEBG("dyn5d ");
         if (i == 1) {
@@ -1090,15 +1088,15 @@ static int __init inflate(struct gzip_data *gd)
     /* decompress until the last block */
     h = 0;
     do {
-        hufts = 0;
+        gd->hufts = 0;
 #ifdef ARCH_HAS_DECOMP_WDOG
         arch_decomp_wdog();
 #endif
         r = inflate_block(gd, &e);
         if (r)
             return r;
-        if (hufts > h)
-            h = hufts;
+        if (gd->hufts > h)
+            h = gd->hufts;
     } while (!e);
 
     /* Undo too much lookahead. The next read will be byte aligned so we

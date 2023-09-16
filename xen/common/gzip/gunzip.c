@@ -31,6 +31,8 @@ struct gzip_data {
 
     unsigned long crc_32_tab[256];
     unsigned long crc;
+
+    unsigned hufts;        /* track memory usage */
 };
 
 #define OF(args)        args
