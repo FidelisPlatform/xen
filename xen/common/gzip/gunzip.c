@@ -28,6 +28,9 @@ struct gzip_data {
 
     unsigned long bb;      /* bit buffer */
     unsigned bk;           /* bits in bit buffer */
+
+    unsigned long crc_32_tab[256];
+    unsigned long crc;
 };
 
 #define OF(args)        args
@@ -78,7 +81,7 @@ static __init void flush_window(struct gzip_data *gd)
      * The window is equal to the output buffer therefore only need to
      * compute the crc.
      */
-    unsigned long c = crc;
+    unsigned long c = gd->crc;
     unsigned int n;
     unsigned char *in, ch;
 
@@ -86,9 +89,9 @@ static __init void flush_window(struct gzip_data *gd)
     for ( n = 0; n < gd->outcnt; n++ )
     {
         ch = *in++;
-        c = crc_32_tab[((int)c ^ ch) & 0xff] ^ (c >> 8);
+        c = gd->crc_32_tab[((int)c ^ ch) & 0xff] ^ (c >> 8);
     }
-    crc = c;
+    gd->crc = c;
 
     gd->bytes_out += (unsigned long)gd->outcnt;
     gd->outcnt = 0;
@@ -129,7 +132,7 @@ __init int perform_gunzip(char *output, char *image, unsigned long image_len)
     gd.inptr = 0;
     gd.bytes_out = 0;
 
-    makecrc();
+    makecrc(&gd);
 
     if ( gunzip(&gd) < 0 )
     {
