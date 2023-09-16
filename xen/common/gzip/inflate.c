@@ -1125,16 +1125,14 @@ static int __init inflate(struct gzip_data *gd)
  *
  **********************************************************************/
 
-static ulg __initdata crc_32_tab[256];
-static ulg __initdata crc;  /* initialized in makecrc() so it'll reside in bss */
-#define CRC_VALUE (crc ^ 0xffffffffUL)
+#define CRC_VALUE (gd->crc ^ 0xffffffffUL)
 
 /*
  * Code to compute the CRC-32 table. Borrowed from
  * gzip-1.0.3/makecrc.c.
  */
 
-static void __init makecrc(void)
+static void __init makecrc(struct gzip_data *gd)
 {
 /* Not copyrighted 1990 Mark Adler */
 
@@ -1151,7 +1149,7 @@ static void __init makecrc(void)
     for (i = 0; i < sizeof(p)/sizeof(int); i++)
         e |= 1L << (31 - p[i]);
 
-    crc_32_tab[0] = 0;
+    gd->crc_32_tab[0] = 0;
 
     for (i = 1; i < 256; i++)
     {
@@ -1162,11 +1160,11 @@ static void __init makecrc(void)
             if (k & 1)
                 c ^= e;
         }
-        crc_32_tab[i] = c;
+        gd->crc_32_tab[i] = c;
     }
 
     /* this is initialized here so this code could reside in ROM */
-    crc = (ulg)0xffffffffUL; /* shift register contents */
+    gd->crc = (ulg)0xffffffffUL; /* shift register contents */
 }
 
 /* gzip flag byte */
