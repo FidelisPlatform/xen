@@ -63,7 +63,6 @@ static __init int fill_inbuf(void)
         return 0;
 }
 
-
 #include "inflate.c"
 
 static __init void flush_window(void)
@@ -137,3 +136,12 @@ __init int perform_gunzip(char *output, char *image, unsigned long image_len)
 
     return rc;
 }
+
+/*
+ * Local variables:
+ * mode: C
+ * c-file-style: "BSD"
+ * c-basic-offset: 4
+ * indent-tabs-mode: nil
+ * End:
+ */
