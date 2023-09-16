@@ -6,21 +6,29 @@
 
 #define HEAPORDER 3
 
-static unsigned char *__initdata window;
 #define memptr long
 static memptr __initdata free_mem_ptr;
 static memptr __initdata free_mem_end_ptr;
 
 #define WSIZE           0x80000000U
 
-static unsigned char *__initdata inbuf;
-static unsigned int __initdata insize;
+struct gzip_data {
+    unsigned char *window;
 
-/* Index of next byte to be processed in inbuf: */
-static unsigned int __initdata inptr;
+    unsigned char *inbuf;
+    unsigned int insize;
 
-/* Bytes in output buffer: */
-static unsigned int __initdata outcnt;
+    /* Index of next byte to be processed in inbuf: */
+    unsigned int inptr;
+
+    /* Bytes in output buffer: */
+    unsigned int outcnt;
+
+    long bytes_out;
+
+    unsigned long bb;      /* bit buffer */
+    unsigned bk;           /* bits in bit buffer */
+};
 
 #define OF(args)        args
 
@@ -30,7 +38,7 @@ typedef unsigned char   uch;
 typedef unsigned short  ush;
 typedef unsigned long   ulg;
 
-#define get_byte()      (inptr < insize ? inbuf[inptr++] : fill_inbuf())
+#define get_byte(gd)      (gd->inptr < gd->insize ? gd->inbuf[gd->inptr++] : fill_inbuf())
 
 /* Diagnostic functions */
 #ifdef DEBUG
@@ -49,8 +57,7 @@ typedef unsigned long   ulg;
 #  define Tracecv(c, x)
 #endif
 
-static long __initdata bytes_out;
-static void flush_window(void);
+static void flush_window(struct gzip_data *gd);
 
 static __init void error(const char *x)
 {
@@ -65,7 +72,7 @@ static __init int fill_inbuf(void)
 
 #include "inflate.c"
 
-static __init void flush_window(void)
+static __init void flush_window(struct gzip_data *gd)
 {
     /*
      * The window is equal to the output buffer therefore only need to
@@ -75,16 +82,16 @@ static __init void flush_window(void)
     unsigned int n;
     unsigned char *in, ch;
 
-    in = window;
-    for ( n = 0; n < outcnt; n++ )
+    in = gd->window;
+    for ( n = 0; n < gd->outcnt; n++ )
     {
         ch = *in++;
         c = crc_32_tab[((int)c ^ ch) & 0xff] ^ (c >> 8);
     }
     crc = c;
 
-    bytes_out += (unsigned long)outcnt;
-    outcnt = 0;
+    gd->bytes_out += (unsigned long)gd->outcnt;
+    gd->outcnt = 0;
 }
 
 __init int gzip_check(char *image, unsigned long image_len)
@@ -102,12 +109,13 @@ __init int gzip_check(char *image, unsigned long image_len)
 
 __init int perform_gunzip(char *output, char *image, unsigned long image_len)
 {
+    struct gzip_data gd;
     int rc;
 
     if ( !gzip_check(image, image_len) )
         return 1;
 
-    window = (unsigned char *)output;
+    gd.window = (unsigned char *)output;
 
     free_mem_ptr = (unsigned long)alloc_xenheap_pages(HEAPORDER, 0);
     if ( !free_mem_ptr )
@@ -116,14 +124,14 @@ __init int perform_gunzip(char *output, char *image, unsigned long image_len)
     free_mem_end_ptr = free_mem_ptr + (PAGE_SIZE << HEAPORDER);
     init_allocator();
 
-    inbuf = (unsigned char *)image;
-    insize = image_len;
-    inptr = 0;
-    bytes_out = 0;
+    gd.inbuf = (unsigned char *)image;
+    gd.insize = image_len;
+    gd.inptr = 0;
+    gd.bytes_out = 0;
 
     makecrc();
 
-    if ( gunzip() < 0 )
+    if ( gunzip(&gd) < 0 )
     {
         rc = -EINVAL;
     }

@@ -119,7 +119,7 @@ static char rcsid[] = "#Id: inflate.c,v 0.14 1993/06/10 13:27:04 jloup Exp #";
 
 #endif /* !__XEN__ */
 
-#define slide window
+#define slide gd->window
 
 /*
  * Huffman code lookup table entry--this entry is four bytes for machines
@@ -143,12 +143,12 @@ struct huft {
 static int huft_build OF((unsigned *, unsigned, unsigned,
                           const ush *, const ush *, struct huft **, int *));
 static int huft_free OF((struct huft *));
-static int inflate_codes OF((struct huft *, struct huft *, int, int));
-static int inflate_stored OF((void));
-static int inflate_fixed OF((void));
-static int inflate_dynamic OF((void));
-static int inflate_block OF((int *));
-static int inflate OF((void));
+static int inflate_codes OF((struct gzip_data *, struct huft *, struct huft *, int, int));
+static int inflate_stored OF((struct gzip_data *));
+static int inflate_fixed OF((struct gzip_data *));
+static int inflate_dynamic OF((struct gzip_data *));
+static int inflate_block OF((struct gzip_data *, int *));
+static int inflate OF((struct gzip_data *));
 
 /*
  * The inflate algorithm uses a sliding 32 K byte window on the uncompressed
@@ -162,8 +162,8 @@ static int inflate OF((void));
  * must be in unzip.h, included above.
  */
 /* unsigned wp;             current position in slide */
-#define wp outcnt
-#define flush_output(w) (wp=(w),flush_window())
+#define wp gd->outcnt
+#define flush_output(gd, w) (wp=(w),flush_window(gd))
 
 /* Tables for deflate from PKZIP's appnote.txt. */
 static const unsigned border[] = {    /* Order of the bit length code lengths */
@@ -215,17 +215,14 @@ static const ush cpdext[] = {         /* Extra bits for distance codes */
  * the stream.
  */
 
-static ulg __initdata bb;                /* bit buffer */
-static unsigned __initdata bk;           /* bits in bit buffer */
-
 static const ush mask_bits[] = {
     0x0000,
     0x0001, 0x0003, 0x0007, 0x000f, 0x001f, 0x003f, 0x007f, 0x00ff,
     0x01ff, 0x03ff, 0x07ff, 0x0fff, 0x1fff, 0x3fff, 0x7fff, 0xffff
 };
 
-#define NEXTBYTE()  ({ int v = get_byte(); if (v < 0) goto underrun; (uch)v; })
-#define NEEDBITS(n) {while(k<(n)){b|=((ulg)NEXTBYTE())<<k;k+=8;}}
+#define NEXTBYTE(gd)  ({ int v = get_byte(gd); if (v < 0) goto underrun; (uch)v; })
+#define NEEDBITS(gd, n) {while(k<(n)){b|=((ulg)NEXTBYTE(gd))<<k;k+=8;}}
 #define DUMPBITS(n) {b>>=(n);k-=(n);}
 
 #ifndef NO_INFLATE_MALLOC
@@ -595,7 +592,7 @@ static int __init huft_free(struct huft *t)
  * @param bd  Number of bits decoded by td[]
  */
 static int __init inflate_codes(
-    struct huft *tl, struct huft *td, int bl, int bd)
+    struct gzip_data *gd, struct huft *tl, struct huft *td, int bl, int bd)
 {
     register unsigned e;  /* table entry flag/number of extra bits */
     unsigned n, d;        /* length and index for copy */
@@ -607,8 +604,8 @@ static int __init inflate_codes(
 
 
     /* make local copies of globals */
-    b = bb;                       /* initialize bit buffer */
-    k = bk;
+    b = gd->bb;                   /* initialize bit buffer */
+    k = gd->bk;
     w = wp;                       /* initialize window position */
 
     /* inflate the coded data */
@@ -616,14 +613,14 @@ static int __init inflate_codes(
     md = mask_bits[bd];
     for (;;)                      /* do until end of block */
     {
-        NEEDBITS((unsigned)bl)
+        NEEDBITS(gd, (unsigned)bl)
         if ((e = (t = tl + ((unsigned)b & ml))->e) > 16)
             do {
             if (e == 99)
                 return 1;
             DUMPBITS(t->b)
             e -= 16;
-            NEEDBITS(e)
+            NEEDBITS(gd, e)
             } while ((e = (t = t->v.t + ((unsigned)b & mask_bits[e]))->e) > 16);
         DUMPBITS(t->b)
         if (e == 16)                /* then it's a literal */
@@ -632,7 +629,7 @@ static int __init inflate_codes(
             Tracevv((stderr, "%c", slide[w-1]));
             if (w == WSIZE)
             {
-                flush_output(w);
+                flush_output(gd, w);
                 w = 0;
             }
         }
@@ -643,22 +640,22 @@ static int __init inflate_codes(
                 break;
 
             /* get length of block to copy */
-            NEEDBITS(e)
+            NEEDBITS(gd, e)
             n = t->v.n + ((unsigned)b & mask_bits[e]);
             DUMPBITS(e);
 
             /* decode distance of block to copy */
-            NEEDBITS((unsigned)bd)
+            NEEDBITS(gd, (unsigned)bd)
             if ((e = (t = td + ((unsigned)b & md))->e) > 16)
                 do {
                     if (e == 99)
                         return 1;
                     DUMPBITS(t->b)
                     e -= 16;
-                    NEEDBITS(e)
+                    NEEDBITS(gd, e)
                 } while ((e = (t = t->v.t + ((unsigned)b & mask_bits[e]))->e) > 16);
             DUMPBITS(t->b)
-            NEEDBITS(e)
+            NEEDBITS(gd, e)
             d = w - t->v.n - ((unsigned)b & mask_bits[e]);
             DUMPBITS(e)
             Tracevv((stderr,"\\[%d,%d]", w-d, n));
@@ -681,7 +678,7 @@ static int __init inflate_codes(
                     } while (--e);
                 if (w == WSIZE)
                 {
-                    flush_output(w);
+                    flush_output(gd, w);
                     w = 0;
                 }
             } while (n);
@@ -690,8 +687,8 @@ static int __init inflate_codes(
 
     /* restore the globals from the locals */
     wp = w;                       /* restore global window pointer */
-    bb = b;                       /* restore global bit buffer */
-    bk = k;
+    gd->bb = b;                   /* restore global bit buffer */
+    gd->bk = k;
 
     /* done */
     return 0;
@@ -701,7 +698,7 @@ static int __init inflate_codes(
 }
 
 /* "decompress" an inflated type 0 (stored) block. */
-static int __init inflate_stored(void)
+static int __init inflate_stored(struct gzip_data *gd)
 {
     unsigned n;           /* number of bytes in block */
     unsigned w;           /* current window position */
@@ -711,8 +708,8 @@ static int __init inflate_stored(void)
     DEBG("<stor");
 
     /* make local copies of globals */
-    b = bb;                       /* initialize bit buffer */
-    k = bk;
+    b = gd->bb;                   /* initialize bit buffer */
+    k = gd->bk;
     w = wp;                       /* initialize window position */
 
 
@@ -722,10 +719,10 @@ static int __init inflate_stored(void)
 
 
     /* get the length and its complement */
-    NEEDBITS(16)
+    NEEDBITS(gd, 16)
     n = ((unsigned)b & 0xffff);
     DUMPBITS(16)
-    NEEDBITS(16)
+    NEEDBITS(gd, 16)
     if (n != (unsigned)((~b) & 0xffff))
         return 1;                   /* error in compressed data */
     DUMPBITS(16)
@@ -733,11 +730,11 @@ static int __init inflate_stored(void)
     /* read and output the compressed data */
     while (n--)
     {
-        NEEDBITS(8)
+        NEEDBITS(gd, 8)
         slide[w++] = (uch)b;
         if (w == WSIZE)
         {
-            flush_output(w);
+            flush_output(gd, w);
             w = 0;
         }
         DUMPBITS(8)
@@ -745,8 +742,8 @@ static int __init inflate_stored(void)
 
     /* restore the globals from the locals */
     wp = w;                       /* restore global window pointer */
-    bb = b;                       /* restore global bit buffer */
-    bk = k;
+    gd->bb = b;                   /* restore global bit buffer */
+    gd->bk = k;
 
     DEBG(">");
     return 0;
@@ -765,7 +762,7 @@ static int __init inflate_stored(void)
  * either replace this with a custom decoder, or at least precompute the
  * Huffman tables.
  */
-static int noinline __init inflate_fixed(void)
+static int noinline __init inflate_fixed(struct gzip_data *gd)
 {
     int i;                /* temporary variable */
     struct huft *tl;      /* literal/length code table */
@@ -809,7 +806,8 @@ static int noinline __init inflate_fixed(void)
     }
 
     /* decompress until an end-of-block code */
-    if (inflate_codes(tl, td, bl, bd)) {
+    if ( inflate_codes(gd, tl, td, bl, bd) )
+    {
         free(l);
         return 1;
     }
@@ -826,7 +824,7 @@ static int noinline __init inflate_fixed(void)
  */
 
 /* decompress an inflated type 2 (dynamic Huffman codes) block. */
-static int noinline __init inflate_dynamic(void)
+static int noinline __init inflate_dynamic(struct gzip_data *gd)
 {
     int i;                /* temporary variables */
     unsigned j;
@@ -857,17 +855,17 @@ static int noinline __init inflate_dynamic(void)
         return 1;
 
     /* make local bit buffer */
-    b = bb;
-    k = bk;
+    b = gd->bb;
+    k = gd->bk;
 
     /* read in table lengths */
-    NEEDBITS(5)
+    NEEDBITS(gd, 5)
     nl = 257 + ((unsigned)b & 0x1f);      /* number of literal/length codes */
     DUMPBITS(5)
-    NEEDBITS(5)
+    NEEDBITS(gd, 5)
     nd = 1 + ((unsigned)b & 0x1f);        /* number of distance codes */
     DUMPBITS(5)
-    NEEDBITS(4)
+    NEEDBITS(gd, 4)
     nb = 4 + ((unsigned)b & 0xf);         /* number of bit length codes */
     DUMPBITS(4)
 #ifdef PKZIP_BUG_WORKAROUND
@@ -885,7 +883,7 @@ static int noinline __init inflate_dynamic(void)
     /* read in bit-length-code lengths */
     for (j = 0; j < nb; j++)
     {
-        NEEDBITS(3)
+        NEEDBITS(gd, 3)
         ll[border[j]] = (unsigned)b & 7;
         DUMPBITS(3)
     }
@@ -912,7 +910,7 @@ static int noinline __init inflate_dynamic(void)
     i = l = 0;
     while ((unsigned)i < n)
     {
-        NEEDBITS((unsigned)bl)
+        NEEDBITS(gd, (unsigned)bl)
         j = (td = tl + ((unsigned)b & m))->b;
         DUMPBITS(j)
         j = td->v.n;
@@ -920,7 +918,7 @@ static int noinline __init inflate_dynamic(void)
             ll[i++] = l = j;          /* save last length in l */
         else if (j == 16)           /* repeat last length 3 to 6 times */
         {
-            NEEDBITS(2)
+            NEEDBITS(gd, 2)
             j = 3 + ((unsigned)b & 3);
             DUMPBITS(2)
             if ((unsigned)i + j > n) {
@@ -932,7 +930,7 @@ static int noinline __init inflate_dynamic(void)
         }
         else if (j == 17)           /* 3 to 10 zero length codes */
         {
-            NEEDBITS(3)
+            NEEDBITS(gd, 3)
             j = 3 + ((unsigned)b & 7);
             DUMPBITS(3)
             if ((unsigned)i + j > n) {
@@ -945,7 +943,7 @@ static int noinline __init inflate_dynamic(void)
         }
         else                        /* j == 18: 11 to 138 zero length codes */
         {
-            NEEDBITS(7)
+            NEEDBITS(gd, 7)
             j = 11 + ((unsigned)b & 0x7f);
             DUMPBITS(7)
             if ((unsigned)i + j > n) {
@@ -966,8 +964,8 @@ static int noinline __init inflate_dynamic(void)
     DEBG("dyn5 ");
 
     /* restore the global bit buffer */
-    bb = b;
-    bk = k;
+    gd->bb = b;
+    gd->bk = k;
 
     DEBG("dyn5a ");
 
@@ -1005,7 +1003,8 @@ static int noinline __init inflate_dynamic(void)
     DEBG("dyn6 ");
 
       /* decompress until an end-of-block code */
-    if (inflate_codes(tl, td, bl, bd)) {
+    if ( inflate_codes(gd, tl, td, bl, bd) )
+    {
         ret = 1;
         goto out;
     }
@@ -1030,9 +1029,10 @@ static int noinline __init inflate_dynamic(void)
 /*
  * decompress an inflated block
  *
+ * @param gd Gzip decompression state
  * @param e Last block flag
  */
-static int __init inflate_block(int *e)
+static int __init inflate_block(struct gzip_data *gd, int *e)
 {
     unsigned t;           /* block type */
     register ulg b;       /* bit buffer */
@@ -1041,30 +1041,30 @@ static int __init inflate_block(int *e)
     DEBG("<blk");
 
     /* make local bit buffer */
-    b = bb;
-    k = bk;
+    b = gd->bb;
+    k = gd->bk;
 
     /* read in last block bit */
-    NEEDBITS(1)
+    NEEDBITS(gd, 1)
     *e = (int)b & 1;
     DUMPBITS(1)
 
     /* read in block type */
-    NEEDBITS(2)
+    NEEDBITS(gd, 2)
     t = (unsigned)b & 3;
     DUMPBITS(2)
 
     /* restore the global bit buffer */
-    bb = b;
-    bk = k;
+    gd->bb = b;
+    gd->bk = k;
 
     /* inflate that block type */
     if (t == 2)
-        return inflate_dynamic();
+        return inflate_dynamic(gd);
     if (t == 0)
-        return inflate_stored();
+        return inflate_stored(gd);
     if (t == 1)
-        return inflate_fixed();
+        return inflate_fixed(gd);
 
     DEBG(">");
 
@@ -1076,7 +1076,7 @@ static int __init inflate_block(int *e)
 }
 
 /* decompress an inflated entry */
-static int __init inflate(void)
+static int __init inflate(struct gzip_data *gd)
 {
     int e;                /* last block flag */
     int r;                /* result code */
@@ -1084,8 +1084,8 @@ static int __init inflate(void)
 
     /* initialize window, bit buffer */
     wp = 0;
-    bk = 0;
-    bb = 0;
+    gd->bk = 0;
+    gd->bb = 0;
 
     /* decompress until the last block */
     h = 0;
@@ -1094,7 +1094,7 @@ static int __init inflate(void)
 #ifdef ARCH_HAS_DECOMP_WDOG
         arch_decomp_wdog();
 #endif
-        r = inflate_block(&e);
+        r = inflate_block(gd, &e);
         if (r)
             return r;
         if (hufts > h)
@@ -1104,13 +1104,13 @@ static int __init inflate(void)
     /* Undo too much lookahead. The next read will be byte aligned so we
      * can discard unused bits in the last meaningful byte.
      */
-    while (bk >= 8) {
-        bk -= 8;
-        inptr--;
+    while (gd->bk >= 8) {
+        gd->bk -= 8;
+        gd->inptr--;
     }
 
     /* flush out slide */
-    flush_output(wp);
+    flush_output(gd, wp);
 
     /* return success */
 #ifdef DEBUG
@@ -1181,7 +1181,7 @@ static void __init makecrc(void)
 /*
  * Do the uncompression!
  */
-static int __init gunzip(void)
+static int __init gunzip(struct gzip_data *gd)
 {
     uch flags;
     unsigned char magic[2]; /* magic header */
@@ -1190,9 +1190,9 @@ static int __init gunzip(void)
     ulg orig_len = 0;       /* original uncompressed length */
     int res;
 
-    magic[0] = NEXTBYTE();
-    magic[1] = NEXTBYTE();
-    method   = NEXTBYTE();
+    magic[0] = NEXTBYTE(gd);
+    magic[1] = NEXTBYTE(gd);
+    method   = NEXTBYTE(gd);
 
     if (magic[0] != 037 ||                            /* octal-ok */
         ((magic[1] != 0213) && (magic[1] != 0236))) { /* octal-ok */
@@ -1206,7 +1206,7 @@ static int __init gunzip(void)
         return -1;
     }
 
-    flags  = (uch)get_byte();
+    flags  = (uch)get_byte(gd);
     if ((flags & ENCRYPTED) != 0) {
         error("Input is encrypted");
         return -1;
@@ -1219,33 +1219,33 @@ static int __init gunzip(void)
         error("Input has invalid flags");
         return -1;
     }
-    NEXTBYTE(); /* Get timestamp */
-    NEXTBYTE();
-    NEXTBYTE();
-    NEXTBYTE();
+    NEXTBYTE(gd); /* Get timestamp */
+    NEXTBYTE(gd);
+    NEXTBYTE(gd);
+    NEXTBYTE(gd);
 
-    (void)NEXTBYTE();  /* Ignore extra flags for the moment */
-    (void)NEXTBYTE();  /* Ignore OS type for the moment */
+    (void)NEXTBYTE(gd);  /* Ignore extra flags for the moment */
+    (void)NEXTBYTE(gd);  /* Ignore OS type for the moment */
 
     if ((flags & EXTRA_FIELD) != 0) {
-        unsigned len = (unsigned)NEXTBYTE();
-        len |= ((unsigned)NEXTBYTE())<<8;
-        while (len--) (void)NEXTBYTE();
+        unsigned len = (unsigned)NEXTBYTE(gd);
+        len |= ((unsigned)NEXTBYTE(gd))<<8;
+        while (len--) (void)NEXTBYTE(gd);
     }
 
     /* Get original file name if it was truncated */
     if ((flags & ORIG_NAME) != 0) {
         /* Discard the old name */
-        while (NEXTBYTE() != 0) /* null */ ;
+        while (NEXTBYTE(gd) != 0) /* null */ ;
     }
 
     /* Discard file comment if any */
     if ((flags & COMMENT) != 0) {
-        while (NEXTBYTE() != 0) /* null */ ;
+        while (NEXTBYTE(gd) != 0) /* null */ ;
     }
 
     /* Decompress */
-    if ((res = inflate())) {
+    if ((res = inflate(gd))) {
         switch (res) {
         case 0:
             break;
@@ -1271,28 +1271,28 @@ static int __init gunzip(void)
     /* crc32  (see algorithm.doc)
      * uncompressed input size modulo 2^32
      */
-    orig_crc = (ulg) NEXTBYTE();
-    orig_crc |= (ulg) NEXTBYTE() << 8;
-    orig_crc |= (ulg) NEXTBYTE() << 16;
-    orig_crc |= (ulg) NEXTBYTE() << 24;
+    orig_crc = (ulg) NEXTBYTE(gd);
+    orig_crc |= (ulg) NEXTBYTE(gd) << 8;
+    orig_crc |= (ulg) NEXTBYTE(gd) << 16;
+    orig_crc |= (ulg) NEXTBYTE(gd) << 24;
 
-    orig_len = (ulg) NEXTBYTE();
-    orig_len |= (ulg) NEXTBYTE() << 8;
-    orig_len |= (ulg) NEXTBYTE() << 16;
-    orig_len |= (ulg) NEXTBYTE() << 24;
+    orig_len = (ulg) NEXTBYTE(gd);
+    orig_len |= (ulg) NEXTBYTE(gd) << 8;
+    orig_len |= (ulg) NEXTBYTE(gd) << 16;
+    orig_len |= (ulg) NEXTBYTE(gd) << 24;
 
     /* Validate decompression */
     if (orig_crc != CRC_VALUE) {
         error("crc error");
         return -1;
     }
-    if (orig_len != bytes_out) {
+    if (orig_len != gd->bytes_out) {
         error("length error");
         return -1;
     }
     return 0;
 
- underrun:   /* NEXTBYTE() goto's here if needed */
+ underrun:   /* NEXTBYTE(gd) goto's here if needed */
     error("out of input data");
     return -1;
 }
