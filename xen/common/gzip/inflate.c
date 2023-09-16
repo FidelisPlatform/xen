@@ -3,9 +3,9 @@
 /* inflate.c -- Not copyrighted 1992 by Mark Adler
    version c10p1, 10 January 1993 */
 
-/* 
+/*
  * Adapted for booting Linux by Hannu Savolainen 1993
- * based on gzip-1.0.3 
+ * based on gzip-1.0.3
  *
  * Nicolas Pitre <nico@cam.org>, 1999/04/14 :
  *   Little mods for all variable to reside either into rodata or bss segments
@@ -50,7 +50,7 @@
    chunks), otherwise the dynamic method is used.  In the latter case, the
    codes are customized to the probabilities in the current block, and so
    can code it much better than the pre-determined fixed codes.
- 
+
    The Huffman codes themselves are decoded using a multi-level table
    lookup, in order to maximize the speed of decoding plus the speed of
    building the decoding tables.  See the comments below that precede the
@@ -184,7 +184,7 @@ static const ush cpdext[] = {         /* Extra bits for distance codes */
 
 /* Macros for inflate() bit peeking and grabbing.
    The usage is:
-   
+
         NEEDBITS(j)
         x = b & mask_bits[j];
         DUMPBITS(j)
@@ -371,7 +371,7 @@ static int __init huft_build(
     memzero(stk->c, sizeof(stk->c));
     p = b;  i = n;
     do {
-        Tracecv(*p, (stderr, (n-i >= ' ' && n-i <= '~' ? "%c %d\n" : "0x%x %d\n"), 
+        Tracecv(*p, (stderr, (n-i >= ' ' && n-i <= '~' ? "%c %d\n" : "0x%x %d\n"),
                      n-i, *p));
         c[*p]++;                    /* assume all entries <= BMAX */
         p++;                      /* Can't combine with above line (Solaris bug) */
@@ -578,7 +578,7 @@ static int __init huft_free(
         q = (--p)->v.t;
         free((char*)p);
         p = q;
-    } 
+    }
     return 0;
 }
 
@@ -1136,7 +1136,7 @@ static ulg __initdata crc;  /* initialized in makecrc() so it'll reside in bss *
 #define CRC_VALUE (crc ^ 0xffffffffUL)
 
 /*
- * Code to compute the CRC-32 table. Borrowed from 
+ * Code to compute the CRC-32 table. Borrowed from
  * gzip-1.0.3/makecrc.c.
  */
 
@@ -1244,7 +1244,7 @@ static int __init gunzip(void)
     if ((flags & ORIG_NAME) != 0) {
         /* Discard the old name */
         while (NEXTBYTE() != 0) /* null */ ;
-    } 
+    }
 
     /* Discard file comment if any */
     if ((flags & COMMENT) != 0) {
@@ -1273,7 +1273,7 @@ static int __init gunzip(void)
         }
         return -1;
     }
-     
+
     /* Get the crc and original length */
     /* crc32  (see algorithm.doc)
      * uncompressed input size modulo 2^32
@@ -1282,12 +1282,12 @@ static int __init gunzip(void)
     orig_crc |= (ulg) NEXTBYTE() << 8;
     orig_crc |= (ulg) NEXTBYTE() << 16;
     orig_crc |= (ulg) NEXTBYTE() << 24;
-    
+
     orig_len = (ulg) NEXTBYTE();
     orig_len |= (ulg) NEXTBYTE() << 8;
     orig_len |= (ulg) NEXTBYTE() << 16;
     orig_len |= (ulg) NEXTBYTE() << 24;
-    
+
     /* Validate decompression */
     if (orig_crc != CRC_VALUE) {
         error("crc error");
