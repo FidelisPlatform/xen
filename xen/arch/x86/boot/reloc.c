@@ -27,8 +27,7 @@ asm (
     );
 
 #include "defs.h"
-#include "../include/asm/bootinfo.h"
-#include "../../../include/xen/bootinfo.h"
+#include "boot_info32.h"
 #include "../../../include/xen/multiboot.h"
 #include "../../../include/xen/multiboot2.h"
 
@@ -329,9 +328,7 @@ static struct boot_info *mbi2_reloc(uint32_t mbi_in, uint32_t video_out)
             mmap_src = get_mb2_data(tag, mmap, entries);
             mmap_dst = _p(arch_binfo->mmap_addr);
 
-            for ( i = 0;
-                  i < arch_binfo->mmap_length / sizeof(*mmap_dst);
-                  i++ )
+            for ( i = 0; i < arch_binfo->mmap_length / sizeof(*mmap_dst); i++ )
             {
                 /* Init size member properly. */
                 mmap_dst[i].size = sizeof(*mmap_dst);
